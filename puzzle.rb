@@ -1,70 +1,61 @@
 require 'rubygems'
-require 'fastercsv'
-require 'active_support/core_ext'
 require 'bundler'
 Bundler.setup
 
 require 'sinatra'
 
 get "/" do
+  text_file = []
   
-  #Read XML
-  xml = File.read("public/rates.xml")
-  #XML to Hash
-  hash = Hash.from_xml(xml)
-  rates = hash["rates"]["rate"]
+  File.open("public/input.txt").each do |line|
+      text_file << line.strip
+  end
   
-  # Conversion Rates
-  eur_to_aud = rates.detect {|rate| rate["from"] == "EUR" and rate["to"] == "AUD"}
-  aud_to_cad = rates.detect {|rate| rate["from"] == "AUD" and rate["to"] == "CAD"}
-  cad_to_usd = rates.detect {|rate| rate["from"] == "CAD" and rate["to"] == "USD"}
+  north_side = []
+  south_side = []
+  pattern = []
   
-  eur_rate = BigDecimal.new(eur_to_aud["conversion"])
-  aud_rate = BigDecimal.new(aud_to_cad["conversion"])
-  cad_rate = BigDecimal.new(cad_to_usd["conversion"])
+  text_file.each_with_index do |line, i|
+    if line.include? "X"
+      pattern << line
+      north_side << text_file[i-1]
+      south_side << text_file[i+1]
+    end 
+  end
   
+  @total = []
   
-  #Default data
-  sku = "DM1182"
+  pattern.each_with_index do |line, i|
+    west_side = line.partition(/X/).first.size
+    west_side_north = north_side[i][0,west_side].reverse
+    west_side_south = south_side[i][0,west_side].reverse
+    
+    west_count = laser_hits(west_side_north, west_side_south)
+    
+    east_side = -(line.partition(/X/).last.size)
+    east_side_north = north_side[i][east_side,(line.size - east_side)]
+    east_side_south = south_side[i][east_side,(line.size - east_side)]
+    
+    east_count = laser_hits(east_side_north, east_side_south)
+    
+    if east_count < west_count
+      @total << "GO EAST"
+      
+    else
+      @total << "GO WEST"
+    end
+  end
   
-  rows = []
-  FasterCSV.foreach("public/TRANS.csv") do |row|
-     if row[1] == sku
-       rows << row
-     end
-   end
-   
-   total = BigDecimal.new('0')
- 
-   rows.each do |row|
-     amount = row[2].split(' ')
-     value = BigDecimal.new(amount[0])
-     type = amount[1]
-     
-     if type == "USD"
-       total += value
-     else
-       if type == "EUR"
-         #convert EUR to AUD
-         value = BigDecimal.new(sprintf("%.2f", value * eur_rate * aud_rate * cad_rate))
-         total += value
-       end
-     
-       if type == "AUD"
-         #convert AUD to CAD
-         value = BigDecimal.new(sprintf("%.2f", value * aud_rate * cad_rate))
-         total += value
-       end
-     
-       if type == "CAD"
-         #convert CAD to USD
-         value = BigDecimal.new(sprintf("%.2f", value * cad_rate))
-         total += value
-       end
-     end
-   end
-   
-   @total = total
-   
-   erb :total
+  @total
+  
+  erb :total
+  
+end
+
+def laser_hits(north, south)
+  count = 0
+  
+  count += (0..north.size).find_all  {|i| i.odd? and north[i..i] == "|" }.count
+  count += (0..south.size).find_all  {|i| i.even? and south[i..i] == "|" }.count
+  return count
 end
